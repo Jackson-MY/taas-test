@@ -26,6 +26,7 @@ jobs:
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           set -euo pipefail
 
@@ -67,20 +68,76 @@ jobs:
               -H "User-Agent: taas-github-actions" \
               | node -e "let d=''; process.stdin.on('data', c => d += c).on('end', () => { const j = JSON.parse(d); if (!j.token) { console.error(d); process.exit(1); } console.log(j.token); })"
           )"
+          echo "::add-mask::${APP_TOKEN}"
 
-          CHECK_RUN_ID="$(
-            curl -sS -X POST "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/check-runs" \
+          echo "===== DEBUG: GitHub App identity (GET /app) ====="
+          curl -sS -o /tmp/app.json -w "HTTP %{http_code}\n" \
+            "https://api.github.com/app" \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: taas-github-actions"
+          echo "--- /app: id/slug/owner/permissions/events ---"
+          jq '{id, slug, name, owner: .owner.login, permissions, events}' /tmp/app.json || cat /tmp/app.json
+          echo
+
+          echo "===== DEBUG: Installation info (GET /app/installations/${GH_APP_INSTALLATION_ID}) ====="
+          curl -sS -o /tmp/installation.json -w "HTTP %{http_code}\n" \
+            "https://api.github.com/app/installations/${GH_APP_INSTALLATION_ID}" \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: taas-github-actions"
+          echo "--- installation: account/target_type/repository_selection/permissions/events/suspended_at ---"
+          jq '{id, account: .account.login, target_type, repository_selection, permissions, events, suspended_at}' /tmp/installation.json || cat /tmp/installation.json
+          echo
+
+          echo "===== DEBUG: Installation access token metadata ====="
+          curl -sS -o /tmp/tokenmeta.json -w "HTTP %{http_code}\n" \
+            -X POST "https://api.github.com/app/installations/${GH_APP_INSTALLATION_ID}/access_tokens" \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: taas-github-actions"
+          echo "--- token metadata: expires_at/permissions/repository_selection/repositories (token itself masked) ---"
+          jq '{expires_at, permissions, repository_selection, repositories: [.repositories[]?.full_name]}' /tmp/tokenmeta.json || cat /tmp/tokenmeta.json
+          echo
+
+          echo "===== DEBUG: Repos visible to this installation ====="
+          curl -sS -o /tmp/repos.json -w "HTTP %{http_code}\n" \
+            "https://api.github.com/installation/repositories?per_page=100" \
+            -H "Authorization: Bearer ${APP_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: taas-github-actions"
+          jq '{total_count, repository_selection, repositories: [.repositories[]?.full_name]}' /tmp/repos.json || cat /tmp/repos.json
+          echo
+
+          echo "===== DEBUG: Target repo lookup with installation token ====="
+          echo "Target: ${REPO_OWNER}/${REPO_NAME}  head_sha=${HEAD_SHA}"
+          curl -sS -o /tmp/repo.json -w "HTTP %{http_code}\n" \
+            "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}" \
+            -H "Authorization: Bearer ${APP_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: taas-github-actions"
+          jq '{full_name, private, permissions}' /tmp/repo.json || cat /tmp/repo.json
+          echo
+
+          echo "===== Creating check-run ====="
+          CHECK_HTTP_CODE="$(
+            curl -sS -o /tmp/checkrun.json -w "%{http_code}" \
+              -X POST "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/check-runs" \
               -H "Authorization: Bearer ${APP_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               -H "Content-Type: application/json" \
               -H "User-Agent: taas-github-actions" \
-              -d "{
-                \"name\": \"TaaS Test\",
-                \"head_sha\": \"${HEAD_SHA}\",
-                \"status\": \"queued\"
-              }" \
-              | node -e "let d=''; process.stdin.on('data', c => d += c).on('end', () => { const j = JSON.parse(d); if (!j.id) { console.error(d); process.exit(1); } console.log(j.id); })"
+              -d "{\"name\": \"TaaS Test\", \"head_sha\": \"${HEAD_SHA}\", \"status\": \"queued\"}"
           )"
+          echo "check-runs HTTP ${CHECK_HTTP_CODE}"
+          cat /tmp/checkrun.json
+          echo
+          if [ "${CHECK_HTTP_CODE}" != "201" ]; then
+            echo "check-run creation failed" >&2
+            exit 1
+          fi
+          CHECK_RUN_ID="$(jq -r '.id' /tmp/checkrun.json)"
+          echo "CHECK_RUN_ID=${CHECK_RUN_ID}"
 
           REQUEST_BODY="$(
             jq -n \
@@ -91,13 +148,20 @@ jobs:
               --arg sha "${HEAD_SHA}" \
               --argjson checkRunId "${CHECK_RUN_ID}" \
               --arg branch "${GITHUB_REF_NAME}" \
+              --arg prNumber "${PR_NUMBER}" \
               '$config[0] + {
                 callback: {
                   token: $token,
                   owner: $owner,
                   repo: $repo,
                   sha: $sha,
-                  checkRunId: $checkRunId
+                  checkRunId: $checkRunId,
+                  prNumber: (
+                    if $prNumber != ""
+                    then ($prNumber | tonumber)
+                    else null
+                    end
+                  )
                 },
                 metadata: {
                   branch: $branch,
