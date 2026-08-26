@@ -138,6 +138,7 @@ jobs:
           fi
           CHECK_RUN_ID="$(jq -r '.id' /tmp/checkrun.json)"
           echo "CHECK_RUN_ID=${CHECK_RUN_ID}"
+          echo "CHECK_RUN_ID=${PR_NUMBER}"
 
           REQUEST_BODY="$(
             jq -n \
