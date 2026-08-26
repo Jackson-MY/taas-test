@@ -1,0 +1,11 @@
+{
+  "board": "SC8480XP",
+  "build": {
+    "url": "https://qli-prod-artifacts.qualcomm.com/qcom-prd-gh-artifacts/qualcomm-linux/meta-qcom-distro/31417627977-1/qcom-distro/iq-8275-evk/initramfs-firmware-db8074-image-iq-8275-evk.cpio.gz"
+  },
+  "testPlan": {
+    "name": "test-taas",
+    "framework": "LAVA",
+    "content": "test-taas"
+  }
+}
