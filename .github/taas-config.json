@@ -1,7 +1,7 @@
 {
   "board": "Pakala",
   "build": {
-    "url": "https://qli-prod-artifacts.qualcomm.com/qcom-prd-gh-artifacts/qualcomm-linux/meta-qcom/31413918279-1/qcom-distro/glymur-crd/Image.gz",
+    "url": "https://qli-prod-artifacts.qualcomm.com/qcom-prd-gh-artifacts/qualcomm-linux/meta-qcom/31413918279-1/qcom-distro/pakala-qrd/Image.gz",
     "storageType": "UFS",
     "storageLayout": "Auto",
     "productFlavor": "Auto",
