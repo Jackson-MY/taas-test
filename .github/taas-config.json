@@ -1,5 +1,5 @@
 {
-  "board": "qcs6490-rb3gen2",
+  "board": "SC8480XP",
   "build": {
     "url": "https://qli-prod-artifacts.qualcomm.com/qcom-prd-gh-artifacts/qualcomm-linux/meta-qcom/32925964841-1/qcom-distro/glymur-crd/qcom-multimedia-image-glymur-crd.rootfs.qcomflash.tar.gz",
     "storageType": "Auto",
