@@ -3,7 +3,7 @@
 This repo contains `.github/workflows/taas.yml`, which submits a TaaS job with callback information.
 
 Configure this repository secret in GitHub before running the workflow:
-https://github.com/ramakrishna1628-sudo/taas-test/settings/secrets/actions
+https://github.com/Jackson-MY/taas-test/settings/secrets/actions
 
 ```text
 QCOM_API_KEY
