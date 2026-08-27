@@ -6,7 +6,7 @@ Configure this repository secret in GitHub before running the workflow:
 https://github.com/Jackson-MY/taas-test/settings/secrets/actions
 
 ```text
-QCOM_API_KEY
+QCOM_QDC_API_KEY
 ```
 
 Job parameters are defined in [`.github/taas-config.json`](.github/taas-config.json).

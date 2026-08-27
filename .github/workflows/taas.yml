@@ -19,7 +19,7 @@ jobs:
         shell: bash
         env:
           TAAS_CONFIG_PATH: .github/taas-config.json
-          QCOM_API_KEY: ${{ secrets.QCOM_API_KEY }}
+          QCOM_QDC_API_KEY: ${{ secrets.QCOM_QDC_API_KEY }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -27,8 +27,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${QCOM_API_KEY}" ]; then
-            echo "Missing required secret: QCOM_API_KEY" >&2
+          if [ -z "${QCOM_QDC_API_KEY}" ]; then
+            echo "Missing required secret: QCOM_QDC_API_KEY" >&2
             exit 1
           fi
 
@@ -65,7 +65,7 @@ jobs:
           )"
 
           curl --location 'https://dev.api.qualcomm.com/devicecloud/v2/taas/jobs' \
-            --header "Authorization: ${QCOM_API_KEY}" \
+            --header "Authorization: ${QCOM_QDC_API_KEY}" \
             --header 'X-QCOM-TokenType: apikey' \
             --header 'X-QCOM-AppName: aihub' \
             --header "X-QCOM-TracingId: ${GITHUB_RUN_ID}" \
