@@ -2,7 +2,7 @@
   "board": "SC8480XP",
   "build": {
     "url": "https://qli-prod-artifacts.qualcomm.com/qcom-prd-gh-artifacts/qualcomm-linux/qcom-deb-images/33134451611-1/trixie-flash-emmc.tar.gz",
-    "storageType": "Spinor__nvme",
+    "storageType": "spinor__nvme",
     "storageLayout": "Auto",
     "productFlavor": "default__qcom_server",
     "binaryType": "Auto"
