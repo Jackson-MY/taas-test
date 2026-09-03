@@ -15,6 +15,18 @@
   },
   "config": {
     "optional": {
+      "buildLoading": "OncePerPlaylist",
+      "loadMethod": "Automatic",
+      "jobProperties": [
+        {
+          "name": "EnableSSHForK2L",
+          "value": "true"
+        },
+        {
+          "name": "CopyLogsForOpen",
+          "value": "True"
+        }
+      ],
       "crashConfiguration": {
         "localFile": {
           "name": "k2l_stability.xml",
