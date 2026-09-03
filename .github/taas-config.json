@@ -5,7 +5,8 @@
     "storageType": "Spinor__nvme",
     "storageLayout": "Auto",
     "productFlavor": "default__qcom_server",
-    "binaryType": "Auto"
+    "binaryType": "Auto",
+    "pathToContentXML": "spinor"
   },
   "testPlan": {
     "name": "test-taas",
