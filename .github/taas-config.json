@@ -6,7 +6,7 @@
     "storageLayout": "Auto",
     "productFlavor": "Auto",
     "binaryType": "Auto",
-    "pathToContentXML": "ufs"
+    "pathToContentXML": "iq-8275-evk\\ufs"
   },
   "testPlan": {
     "name": "test-taas",
