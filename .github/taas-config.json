@@ -6,7 +6,7 @@
     "storageLayout": "Auto",
     "productFlavor": "Auto",
     "binaryType": "Auto",
-    "pathToContentXML": "spinor"
+    "pathToContentXML": "ufs"
   },
   "testPlan": {
     "name": "test-taas",
