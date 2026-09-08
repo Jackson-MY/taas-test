@@ -6,7 +6,7 @@
     "storageLayout": "Auto",
     "productFlavor": "Auto",
     "binaryType": "Auto",
-    "pathToContentXML": "ufs"
+    "pathToContentXML": "qcs6490-rb3gen2-vision-kit\\ufs"
   },
   "testPlan": {
     "name": "test-taas",
