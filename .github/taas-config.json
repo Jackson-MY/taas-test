@@ -6,7 +6,7 @@
     "storageLayout": "Auto",
     "productFlavor": "default__qcom_server",
     "binaryType": "Auto",
-    "pathToContentXML": "spinor"
+    "pathToContentXML": "flash_glymur-crd_nvme\\spinor"
   },
   "testPlan": {
     "name": "test-taas",
