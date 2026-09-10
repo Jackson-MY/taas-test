@@ -29,27 +29,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Submit a TaaS job for manual runs, main pushes, and active PR changes.
-  submit-taas:
-    name: Submit TaaS job
-
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.action != 'closed'
-      )
-
+  # Use one job so GitHub displays only one TaaS check.
+  taas:
+    name: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && 'Abort TaaS job' || 'Submit TaaS job' }}
     runs-on: ubuntu-latest
 
     steps:
       # Fetch the repository so the TaaS config file is available.
       - name: Checkout repository
+        if: github.event_name != 'pull_request' || github.event.action != 'closed'
         uses: actions/checkout@v4
 
       # Build the request and submit the TaaS job.
       - name: Submit TaaS job
+        if: github.event_name != 'pull_request' || github.event.action != 'closed'
         shell: bash
         env:
           QCOM_QDC_API_KEY: ${{ secrets.QCOM_QDC_API_KEY }}
@@ -113,20 +106,12 @@ jobs:
             --header "Content-Type: application/json" \
             --data "${REQUEST_BODY}"
 
-  # Abort TaaS jobs when a PR is closed without being merged.
-  abort-taas:
-    name: Abort TaaS jobs
-
-    if: >
-      github.event_name == 'pull_request' &&
-      github.event.action == 'closed' &&
-      github.event.pull_request.merged == false
-
-    runs-on: ubuntu-latest
-
-    steps:
       # Read the latest Job ID from the comment created by the TaaS bot.
       - name: Find and abort TaaS job
+        if: >
+          github.event_name == 'pull_request' &&
+          github.event.action == 'closed' &&
+          github.event.pull_request.merged == false
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
