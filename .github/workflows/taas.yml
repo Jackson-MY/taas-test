@@ -5,20 +5,54 @@ on:
   push:
     branches:
       - main
+  # Run TaaS for PR updates, and abort related jobs when a PR is closed.
   pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+# Required for storing/retrieving TaaS Job IDs in PR comments
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+env:
+  TAAS_API_BASE_URL: https://dev.api.qualcomm.com/devicecloud/v2/taas
+  TAAS_CONFIG_PATH: .github/taas-config.json
+
+# Keep runs for the same PR/ref in order so the close run can see submitted Job IDs.
+concurrency:
+  group: taas-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  # Submit a TaaS job for manual runs, main pushes, and active PR changes.
   submit-taas:
+    name: Submit TaaS job
+
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.action != 'closed'
+      )
+
     runs-on: ubuntu-latest
 
     steps:
+      # Fetch the repository so the TaaS config file is available.
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Submit TaaS job with GitHub check run callback
+      # Build the TaaS request, submit it, and expose the returned Job ID.
+      - name: Submit TaaS job
+        id: submit-taas
         shell: bash
         env:
-          TAAS_CONFIG_PATH: .github/taas-config.json
           QCOM_QDC_API_KEY: ${{ secrets.QCOM_QDC_API_KEY }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
@@ -27,23 +61,26 @@ jobs:
         run: |
           set -euo pipefail
 
+          # The TaaS API key is required for both submit and abort calls.
           if [ -z "${QCOM_QDC_API_KEY}" ]; then
             echo "Missing required secret: QCOM_QDC_API_KEY" >&2
             exit 1
           fi
 
+          # The request body starts from the repo config file.
           if [ ! -f "${TAAS_CONFIG_PATH}" ]; then
             echo "TaaS config file not found at ${TAAS_CONFIG_PATH}" >&2
             exit 1
           fi
 
+          # Add GitHub callback metadata so TaaS can report results back to this repo.
           REQUEST_BODY="$(
             jq -n \
               --slurpfile config "${TAAS_CONFIG_PATH}" \
               --arg owner "${REPO_OWNER}" \
               --arg repo "${REPO_NAME}" \
               --arg sha "${HEAD_SHA}" \
-              --arg branch "${GITHUB_REF_NAME}" \
+              --arg branch "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}" \
               --arg prNumber "${PR_NUMBER}" \
               '$config[0] + {
                 callback: {
@@ -64,11 +101,175 @@ jobs:
               }'
           )"
 
-          curl --location 'https://dev.api.qualcomm.com/devicecloud/v2/taas/jobs' \
-            --header "Authorization: ${QCOM_QDC_API_KEY}" \
-            --header 'X-QCOM-TokenType: apikey' \
-            --header 'X-QCOM-AppName: aihub' \
-            --header "X-QCOM-TracingId: ${GITHUB_RUN_ID}" \
-            --header 'X-QCOM-ClientType: github-actions' \
-            --header 'Content-Type: application/json' \
-            --data "${REQUEST_BODY}"
+          echo "Submitting TaaS job..."
+
+          # Save the response body separately while curl returns the HTTP status code.
+          RESPONSE_FILE="$(mktemp)"
+          HTTP_STATUS="$(
+            curl \
+              --silent \
+              --show-error \
+              --location \
+              --output "${RESPONSE_FILE}" \
+              --write-out "%{http_code}" \
+              --request POST \
+              "${TAAS_API_BASE_URL}/jobs" \
+              --header "Authorization: ${QCOM_QDC_API_KEY}" \
+              --header "X-QCOM-TokenType: apikey" \
+              --header "X-QCOM-AppName: aihub" \
+              --header "X-QCOM-TracingId: ${GITHUB_RUN_ID}" \
+              --header "X-QCOM-ClientType: github-actions" \
+              --header "Content-Type: application/json" \
+              --data "${REQUEST_BODY}"
+          )"
+
+          RESPONSE="$(cat "${RESPONSE_FILE}")"
+          rm -f "${RESPONSE_FILE}"
+
+          # Treat non-2xx responses as failed submissions.
+          if [[ "${HTTP_STATUS}" -lt 200 || "${HTTP_STATUS}" -ge 300 ]]; then
+            echo "Failed to submit TaaS job."
+            echo "HTTP status: ${HTTP_STATUS}"
+            echo "Response: ${RESPONSE}"
+            exit 1
+          fi
+
+          # The abort job depends on this ID later.
+          JOB_ID="$(jq -r '.id // empty' <<< "${RESPONSE}")"
+          JOB_REPORT_URL="$(jq -r '.jobReportUrl // empty' <<< "${RESPONSE}")"
+
+          if [ -z "${JOB_ID}" ]; then
+            echo "The TaaS response does not contain a valid job ID."
+            echo "Response: ${RESPONSE}"
+            exit 1
+          fi
+
+          echo "TaaS Job ID: ${JOB_ID}"
+          echo "job_id=${JOB_ID}" >> "${GITHUB_OUTPUT}"
+          echo "job_report_url=${JOB_REPORT_URL}" >> "${GITHUB_OUTPUT}"
+
+      # Store the Job ID in the PR so a later close event can find and abort it.
+      - name: Store TaaS Job ID in PR
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          JOB_ID: ${{ steps.submit-taas.outputs.job_id }}
+          JOB_REPORT_URL: ${{ steps.submit-taas.outputs.job_report_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # The hidden marker is easy for the close job to parse.
+          COMMENT_BODY="$(
+            cat <<EOF
+          <!-- TAAS_JOB_ID=${JOB_ID} -->
+          TaaS job \`${JOB_ID}\` was submitted for commit \`${HEAD_SHA}\`.
+
+          ${JOB_REPORT_URL}
+          EOF
+          )"
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --field body="${COMMENT_BODY}"
+
+          echo "Stored TaaS Job ID ${JOB_ID} in PR #${PR_NUMBER}."
+
+  # Abort TaaS jobs when a PR is closed without being merged.
+  abort-taas:
+    name: Abort TaaS jobs
+
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == false
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Read previously stored Job IDs from PR comments and abort each one.
+      - name: Find and abort TaaS jobs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QCOM_QDC_API_KEY: ${{ secrets.QCOM_QDC_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # Abort also needs the TaaS API key.
+          if [ -z "${QCOM_QDC_API_KEY}" ]; then
+            echo "Missing required secret: QCOM_QDC_API_KEY" >&2
+            exit 1
+          fi
+
+          echo "Finding TaaS Job IDs for PR #${PR_NUMBER}..."
+
+          # Find all TaaS Job ID markers written by earlier submit runs.
+          JOB_IDS="$(
+            gh api \
+              --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              --jq '.[].body' \
+            | grep -oE '<!-- TAAS_JOB_ID=[^[:space:]]+ -->' \
+            | sed -E 's/^<!-- TAAS_JOB_ID=([^[:space:]]+) -->$/\1/' \
+            | sort -u \
+            || true
+          )"
+
+          if [ -z "${JOB_IDS}" ]; then
+            echo "No TaaS Job IDs were found for PR #${PR_NUMBER}."
+            exit 0
+          fi
+
+          FAILED_JOB_IDS=""
+
+          # Abort every job we found, but keep going so one failure does not hide others.
+          while IFS= read -r JOB_ID; do
+            if [ -z "${JOB_ID}" ]; then
+              continue
+            fi
+
+            echo "Aborting TaaS Job ${JOB_ID}..."
+
+            RESPONSE_FILE="$(mktemp)"
+            HTTP_STATUS="$(
+              curl \
+                --silent \
+                --show-error \
+                --location \
+                --output "${RESPONSE_FILE}" \
+                --write-out "%{http_code}" \
+                --request POST \
+                "${TAAS_API_BASE_URL}/jobs/${JOB_ID}/abort" \
+                --header "Authorization: ${QCOM_QDC_API_KEY}" \
+                --header "X-QCOM-TokenType: apikey" \
+                --header "X-QCOM-AppName: aihub" \
+                --header "X-QCOM-TracingId: ${GITHUB_RUN_ID}-${JOB_ID}" \
+                --header "X-QCOM-ClientType: github-actions" \
+                --header "Content-Type: application/json"
+            )"
+
+            RESPONSE="$(cat "${RESPONSE_FILE}")"
+            rm -f "${RESPONSE_FILE}"
+
+            # Collect failures and report them together after all abort attempts.
+            if [[ "${HTTP_STATUS}" -ge 200 && "${HTTP_STATUS}" -lt 300 ]]; then
+              echo "Successfully aborted TaaS Job ${JOB_ID}."
+            else
+              echo "Failed to abort TaaS Job ${JOB_ID}."
+              echo "HTTP status: ${HTTP_STATUS}"
+              echo "Response: ${RESPONSE}"
+              FAILED_JOB_IDS="${FAILED_JOB_IDS} ${JOB_ID}"
+            fi
+          done <<< "${JOB_IDS}"
+
+          if [ -n "${FAILED_JOB_IDS}" ]; then
+            echo "Failed to abort the following TaaS Jobs:${FAILED_JOB_IDS}" >&2
+            exit 1
+          fi
+
+          echo "All TaaS jobs associated with PR #${PR_NUMBER} were aborted."
