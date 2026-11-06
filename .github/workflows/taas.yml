@@ -18,7 +18,7 @@ permissions:
   pull-requests: read
 
 env:
-  TAAS_API_BASE_URL: https://dev.api.qualcomm.com/devicecloud/v2/taas
+  TAAS_API_BASE_URL: https://tst.api.qualcomm.com/devicecloud/v2/taas
   TAAS_CONFIG_PATH: .github/taas-config.json
 
 # Keep runs for the same PR/ref in order.
